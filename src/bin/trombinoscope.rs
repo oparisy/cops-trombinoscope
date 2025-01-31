@@ -3,43 +3,16 @@ use std::f64::consts::SQRT_2;
 //use zip::read::ZipFile;
 use std::fs;
 //use std::intrinsics::sqrtf64;
-use std::io::BufReader;
+use std::io;
+use std::io::{BufReader, Read};
 use std::path::Path;
 
+use trombinoscope::tools;
 
 fn main() -> Result<(), PdfiumError> {
     // Read archive contents
     let fname = std::path::Path::new("COPS selection PNJ.zip");
-    let file = fs::File::open(fname).unwrap();
-    let reader = BufReader::new(file);
-
-    let mut archive = zip::ZipArchive::new(reader).unwrap();
-
-    let mut files: Vec<(String, usize)> = Vec::new();
-
-    for i in 0..archive.len() {
-        let file = archive.by_index(i).unwrap();
-        if let None = file.enclosed_name() {
-            println!("Entry {} has a suspicious path", file.name());
-            continue;
-        }
-
-        let filepath = String::from_utf8(file.name_raw().to_vec()).unwrap();
-        let filename = String::from(Path::new(&filepath).file_name().unwrap().to_str().unwrap());
-
-        if file.is_dir() || filepath.starts_with("__MACOSX") {
-            continue;
-        }
-        
-        println!(
-            "Entry {} is a file with name \"{}\" ({} bytes)",
-            i,
-            filename,
-            file.size()
-        );
-
-        files.push((filename, i));
-    }
+    let files: Vec<(String, Vec<u8>)> = tools::load_images_from_archive(fname).unwrap();
 
     let nb_pics = files.len() as i32;
 
