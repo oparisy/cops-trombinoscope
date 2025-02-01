@@ -48,8 +48,8 @@ pub fn generate(
             Ok(decoded) => decoded,
             Err(msg) => panic!("An error occured while decoding image #{} ({name}: {msg}", i+1)
         };
-        let dimensions = image.dimensions();
-        let image_ratio = dimensions.0 as f32 / dimensions.1 as f32;
+        let (jpeg_width, jpeg_height) = image.dimensions();
+        let image_ratio = jpeg_height as f32 / jpeg_width as f32;
         let image_width = cell_width; 
         let image_height = image_width * image_ratio;
 
