@@ -41,25 +41,23 @@ pub fn generate(
         let cell_top: f32 = page_height - (page_vmargin + row as f32 * (cell_width + inner_margin));
         let cell_left: f32 = page_hmargin + column as f32 * (cell_height + inner_margin);
 
-        let to_decode = ImageReader::with_format(Cursor::new(pict_data), image::ImageFormat::Jpeg)
-            .with_guessed_format()
-            .unwrap();
-        let image = match to_decode.decode() {
-            Ok(decoded) => decoded,
-            Err(msg) => panic!("An error occured while decoding image #{} ({name}: {msg}", i+1)
-        };
+        let mut object = PdfPageImageObject::new_from_jpeg_reader(
+            &document,
+            Cursor::new(pict_data),
+        )?;
+
+        let image = object.get_raw_image()?;
+
         let (jpeg_width, jpeg_height) = image.dimensions();
         let image_ratio = jpeg_height as f32 / jpeg_width as f32;
         let image_width = cell_width; 
         let image_height = image_width * image_ratio;
 
-        page.objects_mut().create_image_object(
-            PdfPoints::new(cell_left),
-            PdfPoints::new(cell_top),
-            &image,
-            Some(PdfPoints::new(image_width)),
-            Some(PdfPoints::new(image_height)),
-        )?;
+        // Expected transformations order in PDF is "scaling, then rotation, then translation"
+        // "The returned page object will have its width and height both set to 1.0 points"
+        object.scale(image_width, image_height)?;
+        object.translate(PdfPoints::new(cell_left), PdfPoints::new(cell_top))?;
+        page.objects_mut().add_image_object(object)?;
     }
 
     document.save_to_file("trombinoscope-poster.pdf")?;
