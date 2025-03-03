@@ -1,6 +1,7 @@
 use image::{GenericImageView, ImageReader};
 use pdfium_render::prelude::*;
 use std::io::Cursor;
+use crate::tools;
 
 pub fn generate(
     pdfium: &Pdfium,
@@ -52,6 +53,13 @@ pub fn generate(
         let image_ratio = jpeg_height as f32 / jpeg_width as f32;
         let image_width = cell_width; 
         let image_height = image_width * image_ratio;
+
+        let dpi = tools::compute_dpi(jpeg_width, PdfPoints::new(image_width).to_cm());
+        println!("Resolution of {name}: {dpi} DPI");
+
+        // TODO Resize the contents of pict_data with https://github.com/Cykooz/fast_image_resize,
+        // re-encode to JPEG, then reload with code above? (or, just do a first read with ImageReader::with_format,
+        // see previous versions of this code)
 
         // Expected transformations order in PDF is "scaling, then rotation, then translation"
         // "The returned page object will have its width and height both set to 1.0 points"

@@ -44,3 +44,8 @@ pub fn load_images_from_archive(archive_path: &Path) -> io::Result<Vec<(String, 
 
     return Ok(files);
 }
+
+/** Compute a resolution in DPI (PPI actually) from a definition (pixel size) and its printed size (in cm) */
+pub fn compute_dpi(pixel_size: u32, cm_size: f32) -> u32 {
+    return (pixel_size as f32 * 2.54 / cm_size) as u32;
+}
