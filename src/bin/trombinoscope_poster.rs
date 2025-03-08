@@ -18,7 +18,27 @@ fn main() -> () {
     }
     println!("{nb_pics} pictures to layout in a ({nb_columns} x {nb_rows}) grid");
 
-    // Generate PDFs
     let pdfium = Pdfium::default();
-    poster::generate(&pdfium, &pictures, nb_rows, nb_columns).unwrap();
+    let base_config = poster::RenderConfig {
+        // Easier to express margins in mm
+        page_hmargin: PdfPoints::from_mm(10.).value,
+        page_vmargin: PdfPoints::from_mm(10.).value,
+        inner_margin: PdfPoints::from_mm(10.).value,
+        target_dpi: None,
+    };
+
+    // Generate PDFs at different target DPIs
+    for dpi in [300, 600, 1200, 0] {
+        let config = poster::RenderConfig {
+            target_dpi: if dpi > 0 { Some(dpi) } else { None },
+            ..base_config
+        };
+
+        let filename: String = match config.target_dpi {
+            Some(dpi) => format!("trombinoscope-poster-{dpi}dpi.pdf"),
+            None => "trombinoscope-poster.pdf".to_string()
+        };
+
+        poster::generate(&pdfium, &pictures, nb_rows, nb_columns, &config, &filename).unwrap();
+    }
 }
