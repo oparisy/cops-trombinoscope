@@ -23,12 +23,15 @@ fn main() -> () {
         // Easier to express margins in mm
         page_hmargin: PdfPoints::from_mm(10.).value,
         page_vmargin: PdfPoints::from_mm(10.).value,
-        inner_margin: PdfPoints::from_mm(10.).value,
+        inner_hmargin: PdfPoints::from_mm(2.).value,
+        inner_vmargin: PdfPoints::from_mm(5.).value,
         target_dpi: None,
     };
 
     // Generate PDFs at different target DPIs
-    for dpi in [300, 600, 1200, 0] {
+    for dpi in [600]
+    /*[300, 600, 1200, 0]*/
+    {
         let config = poster::RenderConfig {
             target_dpi: if dpi > 0 { Some(dpi) } else { None },
             ..base_config
@@ -36,7 +39,7 @@ fn main() -> () {
 
         let filename: String = match config.target_dpi {
             Some(dpi) => format!("trombinoscope-poster-{dpi}dpi.pdf"),
-            None => "trombinoscope-poster.pdf".to_string()
+            None => "trombinoscope-poster.pdf".to_string(),
         };
 
         poster::generate(&pdfium, &pictures, nb_rows, nb_columns, &config, &filename).unwrap();

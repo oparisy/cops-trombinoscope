@@ -13,7 +13,8 @@ use fast_image_resize::{IntoImageView, Resizer};
 pub struct RenderConfig {
     pub page_hmargin: f32,
     pub page_vmargin: f32,
-    pub inner_margin: f32,       // This is the margin between cells
+    pub inner_hmargin: f32, // This is the margin between cells
+    pub inner_vmargin: f32,
     pub target_dpi: Option<u32>, // None means "no images downsizing" (max possible DPI)
 }
 
@@ -23,7 +24,7 @@ pub fn generate(
     nb_rows: i32,
     nb_columns: i32,
     config: &RenderConfig,
-    filename: &String
+    filename: &String,
 ) -> Result<(), PdfiumError> {
     let mut document = pdfium.create_new_pdf()?;
 
@@ -39,20 +40,23 @@ pub fn generate(
     let page_height = page.height().value;
 
     let cell_width: f32 = ((page_width - config.page_hmargin * 2.)
-        - (config.inner_margin * (nb_columns - 1) as f32))
+        - (config.inner_hmargin * (nb_columns - 1) as f32))
         / nb_columns as f32;
     let cell_height: f32 = ((page_height - config.page_vmargin * 2.)
-        - (config.inner_margin * (nb_rows - 1) as f32))
+        - (config.inner_vmargin * (nb_rows - 1) as f32))
         / nb_rows as f32;
+    let cell_ratio = cell_height / cell_width;
 
     // Place cells. Note that origin is at bottom left in PDF coordinates system
     for (i, (name, pict_data)) in pictures.iter().enumerate() {
         let row: i32 = i as i32 / nb_columns;
         let column: i32 = i as i32 % nb_columns;
-        let cell_bottom: f32 =
-            page_height - (config.page_vmargin + cell_height + row as f32 * (cell_height + config.inner_margin));
+        let cell_bottom: f32 = page_height
+            - (config.page_vmargin
+                + cell_height
+                + row as f32 * (cell_height + config.inner_vmargin));
         let cell_left: f32 =
-            config.page_hmargin + column as f32 * (cell_width + config.inner_margin);
+            config.page_hmargin + column as f32 * (cell_width + config.inner_hmargin);
 
         let t1 = Instant::now();
         let mut object =
@@ -75,12 +79,23 @@ pub fn generate(
 
         let (jpeg_width, jpeg_height) = image.dimensions();
         let image_ratio = jpeg_height as f32 / jpeg_width as f32;
-        let image_width = cell_width;
-        let image_height = image_width * image_ratio;
         assert_eq!(
             (header.width, header.height),
             (jpeg_width as usize, jpeg_height as usize)
         );
+
+        let image_width: f32;
+        let image_height: f32;
+
+        // Compare ratios to make sure image stays in cell bounds
+        if cell_ratio > image_ratio {
+            // Cell is proportionally taller than image => limiting factor is cell width
+            image_width = cell_width;
+            image_height = image_width * image_ratio;
+        } else {
+            image_height = cell_height;
+            image_width = image_height / image_ratio;
+        }
 
         let dpi = tools::compute_dpi(jpeg_width, PdfPoints::new(image_width).to_cm());
         println!("Resolution of {name}: {dpi} DPI");
@@ -97,13 +112,17 @@ pub fn generate(
                     println!("Need resizing to ({dst_width}, {dst_height}) to reach target resolution ({target_dpi} DPI)");
                 }
             }
-            None => { /* Nothing to do, image does not reach target DPI */}
+            None => { /* Nothing to do, image does not reach target DPI */ }
         }
+
+        // Center image horizontally, but keep it at cell bottom
+        let img_left = cell_left + (cell_width - image_width) / 2.0;
+        let img_bottom = cell_bottom;
 
         // Expected transformations order in PDF is "scaling, then rotation, then translation"
         // "The returned page object will have its width and height both set to 1.0 points"
         object.scale(image_width, image_height)?;
-        object.translate(PdfPoints::new(cell_left), PdfPoints::new(cell_bottom))?;
+        object.translate(PdfPoints::new(img_left), PdfPoints::new(img_bottom))?;
         page.objects_mut().add_image_object(object)?;
     }
 
