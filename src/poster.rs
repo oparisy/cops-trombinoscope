@@ -1,7 +1,14 @@
+use crate::tools;
 use image::{GenericImageView, ImageReader};
 use pdfium_render::prelude::*;
 use std::io::Cursor;
-use crate::tools;
+use std::time::Instant;
+use turbojpeg;
+use image::codecs::jpeg::JpegEncoder;
+use image::{ExtendedColorType, ImageEncoder};
+
+use fast_image_resize::{IntoImageView, Resizer};
+use fast_image_resize::images::Image;
 
 pub fn generate(
     pdfium: &Pdfium,
@@ -23,10 +30,11 @@ pub fn generate(
     let page_height = page.height().value;
 
     // Easier to express margins in mm
-    // TODO Those should be passed as parameters
+    // TODO Those should be passed as parameters (through a "Config" struct?)
     let page_hmargin: f32 = PdfPoints::from_mm(10.).value;
     let page_vmargin: f32 = PdfPoints::from_mm(10.).value;
     let inner_margin: f32 = PdfPoints::from_mm(10.).value; // This is the margin between cells
+    let target_dpi: u32 = 600;
 
     let cell_width: f32 = ((page_width - page_hmargin * 2.)
         - (inner_margin * (nb_columns - 1) as f32))
@@ -42,17 +50,33 @@ pub fn generate(
         let cell_top: f32 = page_height - (page_vmargin + row as f32 * (cell_width + inner_margin));
         let cell_left: f32 = page_hmargin + column as f32 * (cell_height + inner_margin);
 
-        let mut object = PdfPageImageObject::new_from_jpeg_reader(
-            &document,
-            Cursor::new(pict_data),
-        )?;
+        let t1 = Instant::now();
+        let mut object =
+            PdfPageImageObject::new_from_jpeg_reader(&document, Cursor::new(pict_data))?;
+        let elapsed_new_from_jpeg = t1.elapsed().as_millis();
+        println!("new_from_jpeg_reader took {elapsed_new_from_jpeg}ms");
 
+        // Read the JPEG header to compute image DPI at this print size
+        // (significantly less expensive than object.get_raw_image)
+        let t3 = Instant::now();
+        let mut decompressor = turbojpeg::Decompressor::new().unwrap();
+        let header = decompressor.read_header(&pict_data).unwrap();
+        let elapsed_read_header = t3.elapsed().as_millis();
+        println!("read_reader took {elapsed_read_header}ms");
+
+        let t2 = Instant::now();
         let image = object.get_raw_image()?;
+        let elapsed_get_raw_image = t2.elapsed().as_millis();
+        println!("get_raw_image took {elapsed_get_raw_image}ms");
 
         let (jpeg_width, jpeg_height) = image.dimensions();
         let image_ratio = jpeg_height as f32 / jpeg_width as f32;
-        let image_width = cell_width; 
+        let image_width = cell_width;
         let image_height = image_width * image_ratio;
+        assert_eq!(
+            (header.width, header.height),
+            (jpeg_width as usize, jpeg_height as usize)
+        );
 
         let dpi = tools::compute_dpi(jpeg_width, PdfPoints::new(image_width).to_cm());
         println!("Resolution of {name}: {dpi} DPI");
@@ -60,6 +84,12 @@ pub fn generate(
         // TODO Resize the contents of pict_data with https://github.com/Cykooz/fast_image_resize,
         // re-encode to JPEG, then reload with code above? (or, just do a first read with ImageReader::with_format,
         // see previous versions of this code)
+        if (dpi > target_dpi) {
+            let dpi_ratio: f32 = target_dpi as f32 / dpi as f32;
+            let dst_width = (jpeg_width as f32 * dpi_ratio) as u32;
+            let dst_height = (jpeg_height as f32 * dpi_ratio) as u32;
+            println!("Resizing to ({dst_width}, {dst_height}) to reach target resolution ({target_dpi} DPI)");
+        }
 
         // Expected transformations order in PDF is "scaling, then rotation, then translation"
         // "The returned page object will have its width and height both set to 1.0 points"
