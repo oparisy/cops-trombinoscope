@@ -1,21 +1,17 @@
 use crate::tools;
-use image::codecs::jpeg::JpegEncoder;
-use image::{ExtendedColorType, ImageEncoder};
-use image::{GenericImageView, ImageReader};
+use image;
+use image::imageops::FilterType;
+use image::ImageReader;
 use pdfium_render::prelude::*;
 use std::io::Cursor;
-use std::time::Instant;
 use turbojpeg;
-
-use fast_image_resize::images::Image;
-use fast_image_resize::{IntoImageView, Resizer};
 
 pub struct RenderConfig {
     pub page_hmargin: f32,
     pub page_vmargin: f32,
     pub inner_hmargin: f32, // This is the margin between cells
     pub inner_vmargin: f32,
-    pub target_dpi: Option<u32>, // None means "no images downsizing" (max possible DPI)
+    pub max_dpi: Option<u32>, // None means "no images downsizing" (max possible DPI)
 }
 
 pub fn generate(
@@ -58,36 +54,18 @@ pub fn generate(
         let cell_left: f32 =
             config.page_hmargin + column as f32 * (cell_width + config.inner_hmargin);
 
-        let t1 = Instant::now();
-        let mut object =
-            PdfPageImageObject::new_from_jpeg_reader(&document, Cursor::new(pict_data))?;
-        let elapsed_new_from_jpeg = t1.elapsed().as_millis();
-        println!("new_from_jpeg_reader took {elapsed_new_from_jpeg}ms");
-
         // Read the JPEG header to compute image DPI at this print size
         // (significantly less expensive than object.get_raw_image)
-        let t3 = Instant::now();
         let mut decompressor = turbojpeg::Decompressor::new().unwrap();
         let header = decompressor.read_header(&pict_data).unwrap();
-        let elapsed_read_header = t3.elapsed().as_millis();
-        println!("read_reader took {elapsed_read_header}ms");
 
-        let t2 = Instant::now();
-        let image = object.get_raw_image()?;
-        let elapsed_get_raw_image = t2.elapsed().as_millis();
-        println!("get_raw_image took {elapsed_get_raw_image}ms");
-
-        let (jpeg_width, jpeg_height) = image.dimensions();
+        let jpeg_width = header.width;
+        let jpeg_height = header.height;
         let image_ratio = jpeg_height as f32 / jpeg_width as f32;
-        assert_eq!(
-            (header.width, header.height),
-            (jpeg_width as usize, jpeg_height as usize)
-        );
-
-        let image_width: f32;
-        let image_height: f32;
 
         // Compare ratios to make sure image stays in cell bounds
+        let image_width: f32;
+        let image_height: f32;
         if cell_ratio > image_ratio {
             // Cell is proportionally taller than image => limiting factor is cell width
             image_width = cell_width;
@@ -100,24 +78,44 @@ pub fn generate(
         let dpi = tools::compute_dpi(jpeg_width, PdfPoints::new(image_width).to_cm());
         println!("Resolution of {name}: {dpi} DPI");
 
-        // TODO Resize the contents of pict_data with https://github.com/Cykooz/fast_image_resize,
-        // re-encode to JPEG, then reload with code above? (or, just do a first read with ImageReader::with_format,
-        // see previous versions of this code)
-        match config.target_dpi {
-            Some(target_dpi) => {
-                if dpi > target_dpi {
-                    let dpi_ratio: f32 = target_dpi as f32 / dpi as f32;
+        // Resize the image if needed to target max DPI
+        let mut final_data = pict_data;
+        let mut bytes: Vec<u8> = Vec::new();
+        match config.max_dpi {
+            Some(max_dpi) => {
+                if dpi > max_dpi {
+                    let dpi_ratio: f32 = max_dpi as f32 / dpi as f32;
                     let dst_width = (jpeg_width as f32 * dpi_ratio) as u32;
                     let dst_height = (jpeg_height as f32 * dpi_ratio) as u32;
-                    println!("Need resizing to ({dst_width}, {dst_height}) to reach target resolution ({target_dpi} DPI)");
+                    println!("Need resizing to ({dst_width}, {dst_height}) to reach target resolution ({max_dpi} DPI)");
+
+                    // Decode JPEG data
+                    let src_reader = ImageReader::new(Cursor::new(pict_data));
+                    let src_image = src_reader.with_guessed_format().unwrap().decode().unwrap();
+
+                    // Resize image
+                    let resized = src_image.resize(dst_width,
+                        dst_height,
+                        FilterType::Lanczos3);
+
+                    resized
+                        .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
+                        .unwrap();
+                    final_data = &bytes;
                 }
             }
-            None => { /* Nothing to do, image does not reach target DPI */ }
+            None => {
+                /* Nothing to do, image does not reach target DPI */
+            }
         }
 
         // Center image horizontally, but keep it at cell bottom
         let img_left = cell_left + (cell_width - image_width) / 2.0;
         let img_bottom = cell_bottom;
+
+        // Build a PDF image object with DCTDecode (JPEG-encoded) data
+        let mut object =
+            PdfPageImageObject::new_from_jpeg_reader(&document, Cursor::new(final_data))?;
 
         // Expected transformations order in PDF is "scaling, then rotation, then translation"
         // "The returned page object will have its width and height both set to 1.0 points"

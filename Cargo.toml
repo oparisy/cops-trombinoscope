@@ -6,7 +6,6 @@ default-run = "trombinoscope_poster"
 
 [dependencies]
 encoding = "0.2.33"
-fast_image_resize = "5.1.2"
 image = "0.25.5"
 pdfium-render = "0.8.29"
 rand = "0.8.5"
