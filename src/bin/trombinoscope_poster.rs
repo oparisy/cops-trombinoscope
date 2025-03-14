@@ -10,8 +10,8 @@ fn main() -> () {
     let pictures: Vec<(String, Vec<u8>)> = tools::load_images_from_archive(fname).unwrap();
     let nb_pics = pictures.len() as i32;
 
-    // Define a grid size with a ratio near A3 proportions
-    let nb_columns: i32 = (f64::sqrt(f64::from(nb_pics) * SQRT_2)).round() as i32;
+    // Define a grid size; we specify colums to have some control over ratio
+    let nb_columns: i32 = 19;
     let mut nb_rows: i32 = nb_pics / nb_columns;
     if nb_columns * nb_rows < nb_pics {
         nb_rows += 1;
@@ -29,7 +29,7 @@ fn main() -> () {
     };
 
     // Generate PDFs at different target DPIs
-    for dpi in [300, 600, 1200, 0] {
+    for dpi in [600] /*[300, 600, 1200, 0]*/ {
         let config = poster::RenderConfig {
             max_dpi: if dpi > 0 { Some(dpi) } else { None },
             ..base_config

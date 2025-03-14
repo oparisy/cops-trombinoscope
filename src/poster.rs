@@ -1,5 +1,5 @@
 use crate::tools;
-use image;
+use image::{self, DynamicImage};
 use image::imageops::FilterType;
 use image::ImageReader;
 use pdfium_render::prelude::*;
@@ -32,7 +32,6 @@ pub fn generate(
 
     // Do calculations in PDF points (natural PDF unit)
     let page_width = page.width().value;
-
     let page_height = page.height().value;
 
     let cell_width: f32 = ((page_width - config.page_hmargin * 2.)
@@ -63,24 +62,42 @@ pub fn generate(
         let jpeg_height = header.height;
         let image_ratio = jpeg_height as f32 / jpeg_width as f32;
 
-        // Compare ratios to make sure image stays in cell bounds
-        let image_width: f32;
-        let image_height: f32;
-        if cell_ratio > image_ratio {
-            // Cell is proportionally taller than image => limiting factor is cell width
-            image_width = cell_width;
-            image_height = image_width * image_ratio;
-        } else {
-            image_height = cell_height;
-            image_width = image_height / image_ratio;
+        // Decode JPEG data
+        let src_reader = ImageReader::new(Cursor::new(pict_data));
+        let src_image = src_reader.with_guessed_format().unwrap().decode().unwrap();
+
+        // First crop image to make sure it will fill cell completely
+        let cropped: DynamicImage;
+        {
+            let x: u32;
+            let y: u32;
+            let width: u32;
+            let height: u32;
+            if cell_ratio > image_ratio {
+                // Cell is proportionally taller than image => need to crop image left and/or right
+                height = jpeg_height as u32;
+                width = (height as f32 / cell_ratio) as u32;
+                x = (jpeg_width as u32 - width) / 2;
+                y = 0;
+            } else {
+                // Need to crop image top and/or bottom
+                width = jpeg_width as u32;
+                height = (width as f32 * cell_ratio) as u32;
+                x = 0;
+                y = (jpeg_height as u32 - height) / 2;
+            }
+            cropped = src_image.crop_imm(x, y, width, height);
         }
+
+        // Image was cropped => it trivially fits cell bounds
+        let image_width = cell_width;
+        let image_height = cell_height;
 
         let dpi = tools::compute_dpi(jpeg_width, PdfPoints::new(image_width).to_cm());
         println!("Resolution of {name}: {dpi} DPI");
 
         // Resize the image if needed to target max DPI
-        let mut final_data = pict_data;
-        let mut bytes: Vec<u8> = Vec::new();
+        let mut resized: DynamicImage = cropped;
         match config.max_dpi {
             Some(max_dpi) => {
                 if dpi > max_dpi {
@@ -89,25 +106,23 @@ pub fn generate(
                     let dst_height = (jpeg_height as f32 * dpi_ratio) as u32;
                     println!("Need resizing to ({dst_width}, {dst_height}) to reach target resolution ({max_dpi} DPI)");
 
-                    // Decode JPEG data
-                    let src_reader = ImageReader::new(Cursor::new(pict_data));
-                    let src_image = src_reader.with_guessed_format().unwrap().decode().unwrap();
-
                     // Resize image
-                    let resized = src_image.resize(dst_width,
+                    resized = resized.resize(dst_width,
                         dst_height,
                         FilterType::Lanczos3);
-
-                    resized
-                        .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
-                        .unwrap();
-                    final_data = &bytes;
                 }
             }
             None => {
                 /* Nothing to do, image does not reach target DPI */
             }
         }
+
+        // Get JPEG-encoded data
+        let mut bytes: Vec<u8> = Vec::new();
+        resized
+        .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
+        .unwrap();
+        let final_data = &bytes;
 
         // Center image horizontally, but keep it at cell bottom
         let img_left = cell_left + (cell_width - image_width) / 2.0;
