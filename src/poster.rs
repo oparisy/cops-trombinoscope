@@ -1,10 +1,11 @@
 use crate::tools;
-use image::{self, DynamicImage};
 use image::imageops::FilterType;
 use image::ImageReader;
+use image::{self, DynamicImage, GenericImageView};
 use pdfium_render::prelude::*;
+use std::fs;
+use std::io::BufReader;
 use std::io::Cursor;
-use turbojpeg;
 
 pub struct RenderConfig {
     pub page_hmargin: f32,
@@ -53,18 +54,28 @@ pub fn generate(
         let cell_left: f32 =
             config.page_hmargin + column as f32 * (cell_width + config.inner_hmargin);
 
-        // Read the JPEG header to compute image DPI at this print size
-        // (significantly less expensive than object.get_raw_image)
-        let mut decompressor = turbojpeg::Decompressor::new().unwrap();
-        let header = decompressor.read_header(&pict_data).unwrap();
-
-        let jpeg_width = header.width;
-        let jpeg_height = header.height;
-        let image_ratio = jpeg_height as f32 / jpeg_width as f32;
-
         // Decode JPEG data
-        let src_reader = ImageReader::new(Cursor::new(pict_data));
-        let src_image = src_reader.with_guessed_format().unwrap().decode().unwrap();
+        let buff_reader = Cursor::new(pict_data);
+        let src_reader = ImageReader::new(buff_reader).with_guessed_format().unwrap();
+        let src_image = match src_reader.decode() {
+            Ok(img) => img,
+            Err(ref e) => {
+                // Print error, load a placeholder and move on
+                println!("An error occured when decoding {name}: {e}");
+                let fname = std::path::Path::new("logos/COPS_logo.png");
+                let file = fs::File::open(fname).unwrap();
+                let reader = BufReader::new(file);
+                let image = ImageReader::new(reader)
+                    .with_guessed_format()
+                    .unwrap()
+                    .decode()
+                    .unwrap();
+                image
+            }
+        };
+
+        let (src_width, src_height) = src_image.dimensions();
+        let image_ratio = src_height as f32 / src_width as f32;
 
         // First crop image to make sure it will fill cell completely
         let cropped: DynamicImage;
@@ -75,16 +86,16 @@ pub fn generate(
             let height: u32;
             if cell_ratio > image_ratio {
                 // Cell is proportionally taller than image => need to crop image left and/or right
-                height = jpeg_height as u32;
+                height = src_height as u32;
                 width = (height as f32 / cell_ratio) as u32;
-                x = (jpeg_width as u32 - width) / 2;
+                x = (src_width as u32 - width) / 2;
                 y = 0;
             } else {
                 // Need to crop image top and/or bottom
-                width = jpeg_width as u32;
+                width = src_width as u32;
                 height = (width as f32 * cell_ratio) as u32;
                 x = 0;
-                y = (jpeg_height as u32 - height) / 2;
+                y = (src_height as u32 - height) / 2;
             }
             cropped = src_image.crop_imm(x, y, width, height);
         }
@@ -93,7 +104,7 @@ pub fn generate(
         let image_width = cell_width;
         let image_height = cell_height;
 
-        let dpi = tools::compute_dpi(jpeg_width, PdfPoints::new(image_width).to_cm());
+        let dpi = tools::compute_dpi(src_width as usize, PdfPoints::new(image_width).to_cm());
         println!("Resolution of {name}: {dpi} DPI");
 
         // Resize the image if needed to target max DPI
@@ -102,35 +113,32 @@ pub fn generate(
             Some(max_dpi) => {
                 if dpi > max_dpi {
                     let dpi_ratio: f32 = max_dpi as f32 / dpi as f32;
-                    let dst_width = (jpeg_width as f32 * dpi_ratio) as u32;
-                    let dst_height = (jpeg_height as f32 * dpi_ratio) as u32;
+                    let dst_width = (src_width as f32 * dpi_ratio) as u32;
+                    let dst_height = (src_height as f32 * dpi_ratio) as u32;
                     println!("Need resizing to ({dst_width}, {dst_height}) to reach target resolution ({max_dpi} DPI)");
 
                     // Resize image
-                    resized = resized.resize(dst_width,
-                        dst_height,
-                        FilterType::Lanczos3);
+                    resized = resized.resize(dst_width, dst_height, FilterType::Lanczos3);
                 }
             }
-            None => {
-                /* Nothing to do, image does not reach target DPI */
-            }
+            None => { /* Nothing to do, image does not reach target DPI */ }
         }
 
         // Get JPEG-encoded data
         let mut bytes: Vec<u8> = Vec::new();
-        resized
-        .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
-        .unwrap();
-        let final_data = &bytes;
+        let encoding_result = resized
+            .into_rgb8() // Avoid JPEG encoding error when an alpha channel is present in source image
+            .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Jpeg);
+        if let Err(e) = encoding_result {
+            panic!("An error occured when encoding {name} to JPEG: {e}");
+        }
 
         // Center image horizontally, but keep it at cell bottom
         let img_left = cell_left + (cell_width - image_width) / 2.0;
         let img_bottom = cell_bottom;
 
         // Build a PDF image object with DCTDecode (JPEG-encoded) data
-        let mut object =
-            PdfPageImageObject::new_from_jpeg_reader(&document, Cursor::new(final_data))?;
+        let mut object = PdfPageImageObject::new_from_jpeg_reader(&document, Cursor::new(&bytes))?;
 
         // Expected transformations order in PDF is "scaling, then rotation, then translation"
         // "The returned page object will have its width and height both set to 1.0 points"

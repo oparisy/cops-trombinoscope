@@ -1,12 +1,11 @@
 use pdfium_render::prelude::*;
-use std::f64::consts::SQRT_2;
 
 use trombinoscope::poster;
 use trombinoscope::tools;
 
 fn main() -> () {
     // Read archive contents
-    let fname = std::path::Path::new("COPS selection PNJ.zip");
+    let fname = std::path::Path::new("PJ illustrés 2024 V3.zip");
     let pictures: Vec<(String, Vec<u8>)> = tools::load_images_from_archive(fname).unwrap();
     let nb_pics = pictures.len() as i32;
 
@@ -29,7 +28,9 @@ fn main() -> () {
     };
 
     // Generate PDFs at different target DPIs
-    for dpi in [600] /*[300, 600, 1200, 0]*/ {
+    for dpi in [600]
+    /*[300, 600, 1200, 0]*/
+    {
         let config = poster::RenderConfig {
             max_dpi: if dpi > 0 { Some(dpi) } else { None },
             ..base_config
