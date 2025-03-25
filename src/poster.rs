@@ -43,6 +43,12 @@ pub fn generate(
         / nb_rows as f32;
     let cell_ratio = cell_height / cell_width;
 
+    //let font = document.fonts_mut().courier_bold();
+
+    let font = document
+        .fonts_mut()
+        .load_true_type_from_bytes(include_bytes!("../font/Chandler42 Regular.otf"), true)?;
+
     // Place cells. Note that origin is at bottom left in PDF coordinates system
     for (i, (name, pict_data)) in pictures.iter().enumerate() {
         let row: i32 = i as i32 / nb_columns;
@@ -138,13 +144,34 @@ pub fn generate(
         let img_bottom = cell_bottom;
 
         // Build a PDF image object with DCTDecode (JPEG-encoded) data
-        let mut object = PdfPageImageObject::new_from_jpeg_reader(&document, Cursor::new(&bytes))?;
+        let mut image_object = PdfPageImageObject::new_from_jpeg_reader(&document, Cursor::new(&bytes))?;
 
         // Expected transformations order in PDF is "scaling, then rotation, then translation"
         // "The returned page object will have its width and height both set to 1.0 points"
-        object.scale(image_width, image_height)?;
-        object.translate(PdfPoints::new(img_left), PdfPoints::new(img_bottom))?;
-        page.objects_mut().add_image_object(object)?;
+        image_object.scale(image_width, image_height)?;
+        image_object.translate(PdfPoints::new(img_left), PdfPoints::new(img_bottom))?;
+        page.objects_mut().add_image_object(image_object)?;
+
+        // Emit the label
+        let font_size = 5.0;
+        
+        let mut text_object = PdfPageTextObject::new(
+            &document,
+            tools::normalize_unicode(name),
+            font,
+            PdfPoints::new(font_size),
+        )?;
+
+        //object.set_fill_color(PdfColor::new(random(), random(), random(), 255))?;
+
+        let text_bounds = text_object.bounds().unwrap();
+        let text_width = text_bounds.x3.value - text_bounds.x1.value;
+        let hspace = cell_width - text_width;
+
+        text_object.translate(PdfPoints::new(img_left + hspace / 2.), PdfPoints::new(cell_bottom - config.inner_vmargin / 2.))?;
+
+        // Add the object to the page, triggering content regeneration.
+        page.objects_mut().add_text_object(text_object)?;
     }
 
     document.save_to_file(&filename)?;

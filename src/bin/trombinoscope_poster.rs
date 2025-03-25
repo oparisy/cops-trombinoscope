@@ -3,11 +3,24 @@ use pdfium_render::prelude::*;
 use trombinoscope::poster;
 use trombinoscope::tools;
 
+use regex::Regex;
+
 fn main() -> () {
     // Read archive contents
-    let fname = std::path::Path::new("PJ illustrés 2024 V3.zip");
-    let pictures: Vec<(String, Vec<u8>)> = tools::load_images_from_archive(fname).unwrap();
+    let fname = std::path::Path::new("PJ illustrés 2024 V4.zip");
+    let mut pictures: Vec<(String, Vec<u8>)> = tools::load_images_from_archive(fname).unwrap();
     let nb_pics = pictures.len() as i32;
+
+    // Sort images per prefix & character name
+    pictures.sort_by(|a, b| a.0.cmp(&b.0));
+
+    // Remove prefix and file extension
+    let re = Regex::new(r"^(?:[^_]+)_([^.]+)\..+$").unwrap();
+
+    for entry in pictures.iter_mut() {
+        let caps = re.captures(&entry.0).unwrap();
+        entry.0 = caps[1].to_string();
+    }
 
     // Define a grid size; we specify colums to have some control over ratio
     let nb_columns: i32 = 19;

@@ -2,6 +2,7 @@ use std::fs;
 use std::io;
 use std::io::{BufReader, Read};
 use std::path::Path;
+use unicode_normalization::UnicodeNormalization;
 
 pub fn load_images_from_archive(archive_path: &Path) -> io::Result<Vec<(String, Vec<u8>)>> {
     // Read archive contents
@@ -48,4 +49,9 @@ pub fn load_images_from_archive(archive_path: &Path) -> io::Result<Vec<(String, 
 /** Compute a resolution in DPI (PPI actually) from a definition (pixel size) and its printed size (in cm) */
 pub fn compute_dpi(pixel_size: usize, cm_size: f32) -> u32 {
     return (pixel_size as f32 * 2.54 / cm_size) as u32;
+}
+
+/** Compose diacritics (those are not supported by pdfium-render) */
+pub fn normalize_unicode(to_normalize: &String) -> String {
+    return to_normalize.nfc().collect();
 }
