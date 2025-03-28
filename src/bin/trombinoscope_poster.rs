@@ -5,7 +5,13 @@ use trombinoscope::tools;
 
 use regex::Regex;
 
+use std::fs;
+
 fn main() -> () {
+    // Create caching folder, if not already present
+    let cache_dir = std::path::Path::new("cache");
+    fs::create_dir_all(cache_dir).unwrap();
+
     // Read archive contents
     let fname = std::path::Path::new("PJ illustrés 2024 V4.zip");
     let mut pictures: Vec<(String, Vec<u8>)> = tools::load_images_from_archive(fname).unwrap();
@@ -54,6 +60,6 @@ fn main() -> () {
             None => "trombinoscope-poster.pdf".to_string(),
         };
 
-        poster::generate(&pdfium, &pictures, nb_rows, nb_columns, &config, &filename).unwrap();
+        poster::generate(&pdfium, &pictures, nb_rows, nb_columns, &config, &filename, cache_dir).unwrap();
     }
 }
