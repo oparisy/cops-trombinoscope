@@ -178,10 +178,11 @@ fn crop_to_fit_cell(src_width: u32, src_height: u32, cell_ratio: f32) -> Rectang
         y = 0;
     } else {
         // Need to crop image top and/or bottom
+        // To respect faces, crop bottom (less chance to cut top of hair)
         width = src_width as u32;
         height = (width as f32 * cell_ratio) as u32;
         x = 0;
-        y = (src_height as u32 - height) / 2;
+        y = 0; // (src_height as u32 - height) / 2;
     }
     return Rectangle {
         x,

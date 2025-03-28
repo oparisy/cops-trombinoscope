@@ -13,7 +13,7 @@ fn main() -> () {
     fs::create_dir_all(cache_dir).unwrap();
 
     // Read archive contents
-    let fname = std::path::Path::new("PJ illustrés 2024 V4.zip");
+    let fname = std::path::Path::new("PJ illustrés 2024 V5.zip");
     let mut pictures: Vec<(String, Vec<u8>)> = tools::load_images_from_archive(fname).unwrap();
     let nb_pics = pictures.len() as i32;
 
