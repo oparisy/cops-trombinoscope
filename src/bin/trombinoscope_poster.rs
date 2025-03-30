@@ -46,10 +46,10 @@ fn main() -> () {
         max_dpi: None,
     };
 
+    let title = fname.file_stem().unwrap().to_str().unwrap().into();
+
     // Generate PDFs at different target DPIs
-    for dpi in [600]
-    /*[300, 600, 1200, 0]*/
-    {
+    for dpi in [300, 600, 1200, 0] {
         let config = poster::RenderConfig {
             max_dpi: if dpi > 0 { Some(dpi) } else { None },
             ..base_config
@@ -60,6 +60,9 @@ fn main() -> () {
             None => "trombinoscope-poster.pdf".to_string(),
         };
 
-        poster::generate(&pdfium, &pictures, nb_rows, nb_columns, &config, &filename, cache_dir).unwrap();
+        poster::generate(
+            &pdfium, &pictures, nb_rows, nb_columns, &config, &filename, cache_dir, &title,
+        )
+        .unwrap();
     }
 }

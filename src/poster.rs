@@ -21,6 +21,7 @@ pub fn generate(
     config: &RenderConfig,
     filename: &String,
     cache_dir: &std::path::Path,
+    title: &String,
 ) -> Result<(), PdfiumError> {
     let mut document = pdfium.create_new_pdf()?;
 
@@ -156,6 +157,25 @@ pub fn generate(
         // Add the object to the page, triggering content regeneration.
         page.objects_mut().add_text_object(text_object)?;
     }
+
+    // Add page title (based on the file name)
+    let title_font_size = 10.0;
+    let mut title_object = PdfPageTextObject::new(
+        &document,
+        tools::normalize_unicode(title),
+        font,
+        PdfPoints::new(title_font_size),
+    )?;
+
+    let text_bounds = title_object.bounds().unwrap();
+    let text_width = text_bounds.x3.value - text_bounds.x1.value;
+
+    title_object.translate(
+        PdfPoints::new(page_width - text_width - config.page_hmargin),
+        PdfPoints::new(page_height - config.page_vmargin * 0.6),
+    )?;
+
+    page.objects_mut().add_text_object(title_object)?;
 
     document.save_to_file(&filename)?;
 
